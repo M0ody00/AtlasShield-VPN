@@ -1,0 +1,76 @@
+name: AtlasShield V2 Proton foundation
+on:
+  push:
+    branches: [v2-proton-foundation]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: atlas-v2-foundation
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout exact upstream open source
+        uses: actions/checkout@v4
+        with:
+          repository: ProtonVPN/android-app
+          ref: 416d2ee1d979615d7c644f19338b56f82cb39b68
+          path: upstream
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install upstream Android SDK and native tools
+        shell: bash
+        run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          MANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$MANAGER" ]]; then
+            MANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          fi
+          test -x "$MANAGER"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          set +o pipefail
+          yes | "$MANAGER" --sdk_root="$SDK" --licenses >/dev/null
+          set -o pipefail
+          "$MANAGER" --sdk_root="$SDK" "platforms;android-36" "build-tools;35.0.0" "ndk;28.1.13356709" "cmake;3.22.1"
+          sudo apt-get update -qq
+          sudo apt-get install -y swig
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply independent preview label
+        run: python3 v2/prepare.py upstream
+      - name: Compile official open-source flavor
+        working-directory: upstream
+        shell: bash
+        run: |
+          chmod +x gradlew
+          env -u CI ./gradlew --no-daemon --max-workers=2 --stacktrace --console=plain :app:assembleProductionVanillaOpenSourceDebug -PappId=com.atlasshield.v2.preview
+      - name: Verify and collect signed debug APKs
+        shell: bash
+        run: |
+          mkdir -p dist
+          mapfile -d '' apks < <(find upstream/app/build/outputs/apk -type f -name '*.apk' -print0)
+          test "${#apks[@]}" -gt 0
+          for apk in "${apks[@]}"; do
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
+            cp "$apk" dist/
+          done
+          ls -lh dist
+          sha256sum dist/*.apk > dist/SHA256SUMS.txt
+          cp v2/UPSTREAM.md dist/
+          find upstream -maxdepth 1 -iname 'license*' -type f -exec cp {} dist/ \;
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AtlasShield-V2-Foundation-preview
+          path: dist/
+          if-no-files-found: error
