@@ -43,7 +43,7 @@ final class SmartEngine {
             app.error="No server passed verification";return null;
         }finally{if(!keep)app.disconnect();}
     }
-    private long probe() throws Exception {
+    long probe() throws Exception {
         long deadline=SystemClock.elapsedRealtime()+3500;
         ConnectivityManager cm=(ConnectivityManager)app.getSystemService(Context.CONNECTIVITY_SERVICE);
         if(cm==null)return -1;

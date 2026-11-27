@@ -21,7 +21,7 @@ public final class MainActivity extends Activity {
     private AtlasApp app;
     private ProfileStore.Data data;
     private TextView status, detail, traffic, profile, count;
-    private Button connect, choose, add, proton, smart;
+    private Button connect, choose, add, proton, smart, discover;
     private ProfileStore.Profile pending;
     private boolean resumed=false, refreshing=false, loading=true;
     private final Runnable tick=new Runnable(){ public void run(){ if(!resumed)return; refresh(); h.postDelayed(this,2000); }};
@@ -42,6 +42,8 @@ public final class MainActivity extends Activity {
         detail=text("",13,MUTED,false); detail.setGravity(Gravity.CENTER); hero.addView(detail); gap(hero,18);
         connect=button(tr("Connect","اتصال"),true); hero.addView(connect,new LinearLayout.LayoutParams(-1,dp(56))); connect.setEnabled(false); connect.setOnClickListener(v->toggle());
         smart=button(tr("Smart Connect · test servers","اتصال ذكي · اختبار السيرفرات"),false);hero.addView(smart);smart.setEnabled(false);smart.setOnClickListener(v->startSmart());
+        discover=button(tr("Discover Proton FREE servers","اكتشاف سيرفرات Proton المجانية"),true);hero.addView(discover);discover.setEnabled(false);discover.setOnClickListener(v->discoverDialog());
+        hero.addView(text(tr("53 catalog entries · verify on your network","٥٣ سيرفرًا بالقائمة · يتم اختبار الاتصال على شبكتك"),12,MUTED,false));
         LinearLayout location=panel(root); location.addView(text(tr("YOUR LOCATION","موقع السيرفر"),11,MINT,true));
         profile=text(tr("No server imported","لا يوجد سيرفر مضاف"),20,WHITE,true); location.addView(profile); count=text("",13,MUTED,false); location.addView(count); gap(location,12);
         choose=button(tr("Select server","اختيار السيرفر"),false); location.addView(choose); choose.setOnClickListener(v->pick());
@@ -53,7 +55,7 @@ public final class MainActivity extends Activity {
         security.addView(text(tr("Encrypted local profile storage. No advertising SDK or analytics. For a kill switch, enable Android's Always-on VPN and Block connections without VPN.","حفظ ملفات الاتصال مشفرة محليًا، دون مكتبات إعلانات أو تحليلات. لتفعيل Kill Switch استخدم VPN دائم التشغيل وحظر الاتصال دون VPN من إعدادات أندرويد."),14,MUTED,false));
         Button settings=button(tr("Android VPN settings","إعدادات VPN في أندرويد"),false); security.addView(settings); settings.setOnClickListener(v->{try{startActivity(new Intent(Settings.ACTION_VPN_SETTINGS));}catch(Exception e){toast(tr("Open VPN settings manually","افتح إعدادات VPN يدويًا"));}});
         Button remove=button(tr("Remove selected profile","حذف السيرفر المحدد"),false); security.addView(remove); remove.setOnClickListener(v->remove());
-        gap(root,12); root.addView(text("ATLAS SHIELD  /  1.0.0  /  SMART BETA",11,MUTED,true));
+        gap(root,12); root.addView(text("ATLAS SHIELD  /  1.1.0  /  DISCOVERY BETA",11,MUTED,true));
         app.worker.execute(()->{try{ProfileStore.Data d=app.store.load();runOnUiThread(()->{data=d;loading=false;updateProfile();});}catch(Exception e){runOnUiThread(()->{loading=false;toast(tr("Cannot read encrypted profiles","تعذر قراءة الملفات المشفرة"));});}});
     }
     @Override protected void onResume(){super.onResume();resumed=true;h.removeCallbacks(tick);h.post(tick);}
@@ -66,13 +68,13 @@ public final class MainActivity extends Activity {
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
     private String country(String code){return code==null||code.isEmpty()?tr("Unknown country","دولة غير محددة"):new Locale("",code).getDisplayCountry(Locale.getDefault());}
     private void updateProfile(){if(data==null)return;ProfileStore.Profile p=data.selected();profile.setText(p==null?tr("No server imported","لا يوجد سيرفر مضاف"):country(p.country)+" / "+p.name);count.setText(data.profiles.size()+tr(" imported profiles · locations are user-labelled"," ملف اتصال مضاف · المواقع يحددها المستخدم"));}
-    private void refresh(){if(refreshing)return;if(app.busy){status.setText(tr("Working…","جارٍ التنفيذ…"));connect.setEnabled(false);choose.setEnabled(false);add.setEnabled(false);smart.setEnabled(false);if(!app.progress.isEmpty())detail.setText(app.progress);return;}refreshing=true;
+    private void refresh(){if(refreshing)return;if(app.busy){status.setText(tr("Working…","جارٍ التنفيذ…"));connect.setEnabled(false);choose.setEnabled(false);add.setEnabled(false);smart.setEnabled(false);discover.setEnabled(false);if(!app.progress.isEmpty())detail.setText(app.progress);return;}refreshing=true;
         app.worker.execute(()->{AtlasApp.Snapshot s=null;try{s=app.stats();}catch(Exception|LinkageError e){app.error="Cannot read VPN state";}final AtlasApp.Snapshot x=s;runOnUiThread(()->{refreshing=false;if(isFinishing()||isDestroyed())return;
             boolean up=x!=null&&x.up, known=x!=null;long age=up&&x.handshake>0?System.currentTimeMillis()-x.handshake:Long.MAX_VALUE;boolean recent=age>=0&&age<180000;
             status.setText(!known?tr("State unknown","حالة غير معروفة"):up?(recent?tr("Handshake verified","تم التحقق من الاتصال"):tr("Tunnel active","النفق نشط")):tr("Disconnected","غير متصل")); status.setTextColor(up&&recent?MINT:WHITE);
             detail.setText(!app.error.isEmpty()?tr("VPN error. Check profile and network.","خطأ في VPN؛ تحقق من الملف والشبكة."):up?(recent?tr("Recent authenticated handshake · internet not tested","مصافحة مشفرة حديثة · لم يتم اختبار الإنترنت"):tr("Waiting for a recent server handshake","في انتظار مصافحة حديثة مع السيرفر")):tr("Import a trusted server to get started","أضف سيرفرًا موثوقًا للبدء"));
             traffic.setText(up?"↓ "+bytes(x.rx)+"     ↑ "+bytes(x.tx)+"\n"+duration(x.elapsed):"↓ 0 B     ↑ 0 B");
-            connect.setText(up?tr("Disconnect","قطع الاتصال"):tr("Connect","اتصال"));connect.setEnabled(!app.busy&&(up||!loading&&data!=null&&data.selected()!=null));choose.setEnabled(!loading&&!app.busy&&!up&&data!=null);add.setEnabled(!loading&&!app.busy&&!up&&data!=null);smart.setEnabled(known&&!loading&&!app.busy&&!up&&data!=null&&!data.profiles.isEmpty());
+            connect.setText(up?tr("Disconnect","قطع الاتصال"):tr("Connect","اتصال"));connect.setEnabled(!app.busy&&(up||!loading&&data!=null&&data.selected()!=null));choose.setEnabled(!loading&&!app.busy&&!up&&data!=null);add.setEnabled(!loading&&!app.busy&&!up&&data!=null);smart.setEnabled(known&&!loading&&!app.busy&&!up&&data!=null&&!data.profiles.isEmpty());discover.setEnabled(known&&!loading&&!app.busy&&!up&&data!=null);
         });});
     }
     private static String bytes(long n){if(n<1024)return n+" B";if(n<1048576)return String.format(Locale.US,"%.1f KB",n/1024.0);return String.format(Locale.US,"%.1f MB",n/1048576.0);}
@@ -84,7 +86,38 @@ public final class MainActivity extends Activity {
         catch(ActivityNotFoundException e){ toast(tr("Open account.protonvpn.com/downloads in your browser","افتح account.protonvpn.com/downloads في متصفحك")); }
     }
     private void importFile(){if(app.busy||data==null||!app.activeId.isEmpty())return;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("*/*");i.addCategory(Intent.CATEGORY_OPENABLE);i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,12);}
-    @Override protected void onActivityResult(int req,int result,Intent intent){super.onActivityResult(req,result,intent);if(req==11){ProfileStore.Profile p=pending!=null?pending:data==null?null:data.selected();pending=null;if(result==RESULT_OK&&p!=null)runVpn(p);return;}if(req==13&&result==RESULT_OK){runSmart();return;}if(req==12&&result==RESULT_OK&&intent!=null){ArrayList<Uri> uris=new ArrayList<>();ClipData clips=intent.getClipData();if(clips!=null){for(int j=0;j<clips.getItemCount()&&j<50;j++){Uri u=clips.getItemAt(j).getUri();if(u!=null&&!uris.contains(u))uris.add(u);}}else if(intent.getData()!=null)uris.add(intent.getData());if(uris.size()==1)readFile(uris.get(0));else if(!uris.isEmpty())confirmBulk(uris);}}
+    @Override protected void onActivityResult(int req,int result,Intent intent){super.onActivityResult(req,result,intent);if(req==11){ProfileStore.Profile p=pending!=null?pending:data==null?null:data.selected();pending=null;if(result==RESULT_OK&&p!=null)runVpn(p);return;}if(req==14){if(result==RESULT_OK)runDiscovery();return;}if(req==13&&result==RESULT_OK){runSmart();return;}if(req==12&&result==RESULT_OK&&intent!=null){ArrayList<Uri> uris=new ArrayList<>();ClipData clips=intent.getClipData();if(clips!=null){for(int j=0;j<clips.getItemCount()&&j<50;j++){Uri u=clips.getItemAt(j).getUri();if(u!=null&&!uris.contains(u))uris.add(u);}}else if(intent.getData()!=null)uris.add(intent.getData());if(uris.size()==1)readFile(uris.get(0));else if(!uris.isEmpty())confirmBulk(uris);}}
+    private String discoveryCountry="";
+    private void discoverDialog(){
+        if(app.busy||data==null||!app.activeId.isEmpty())return;
+        if(data.profiles.isEmpty()){
+            new AlertDialog.Builder(this).setTitle(tr("One Proton key needed","مطلوب ملف Proton واحد"))
+              .setMessage(tr("Import one official Proton FREE WireGuard file once. Discovery then tries other catalog servers locally, without sending your key to any website.","استورد ملف WireGuard مجانيًا رسميًا من Proton مرة واحدة. بعدها يحاول التطبيق الاتصال بسيرفرات القائمة محليًا دون إرسال مفتاحك لأي موقع."))
+              .setNegativeButton(android.R.string.cancel,null).setPositiveButton(tr("Import","استيراد"),(d,w)->importFile()).setNeutralButton("Proton",(d,w)->openProton()).show();return;
+        }
+        try{
+            ProtonDiscovery catalog=new ProtonDiscovery(app);
+            String[] codes=catalog.countries();
+            String[] labels=new String[codes.length+1];labels[0]=tr("Automatic · test different countries","تلقائي · اختبار دول مختلفة");
+            for(int i=0;i<codes.length;i++)labels[i+1]=country(codes[i]);
+            new AlertDialog.Builder(this).setTitle(tr("Discover free servers","اكتشاف السيرفرات المجانية"))
+                .setItems(labels,(d,w)->{discoveryCountry=w==0?"":codes[w-1];
+                    new AlertDialog.Builder(this).setTitle(tr("Test catalog servers","اختبار سيرفرات القائمة"))
+                      .setMessage(tr("Community-maintained Gluetun catalog, not an official Proton API. Up to 6 candidates are tested with your existing local Proton key. Only a verified WireGuard + HTTPS connection is saved. Proton may reject the key. Enable Android VPN lockdown to prevent traffic escaping between tests.","قائمة Gluetun مفتوحة المصدر وليست واجهة Proton رسمية. يتم اختبار حتى ٦ سيرفرات بمفتاح Proton الموجود على هاتفك. لا يحفظ التطبيق إلا اتصالًا نجح في WireGuard وHTTPS. قد يرفض Proton المفتاح. فعّل حظر الاتصال بدون VPN للحماية بين الاختبارات."))
+                      .setNegativeButton(android.R.string.cancel,null).setPositiveButton(tr("Discover and connect","اكتشاف واتصال"),(x,y)->{Intent i=VpnService.prepare(this);if(i!=null)startActivityForResult(i,14);else runDiscovery();}).show();
+                }).setNegativeButton(android.R.string.cancel,null).show();
+        }catch(Exception e){toast(tr("Server catalog unavailable","قائمة السيرفرات غير متاحة"));}
+    }
+    private void runDiscovery(){
+        if(app.busy||!app.activeId.isEmpty())return;app.busy=true;discover.setEnabled(false);final String filter=discoveryCountry;
+        app.worker.execute(()->{try{
+            ProfileStore.Data latest=app.store.load();
+            ProtonDiscovery.Outcome outcome=new ProtonDiscovery(app).discover(latest,filter);
+            runOnUiThread(()->{data=latest;updateProfile();new AlertDialog.Builder(this).setTitle(tr("Discovery result","نتيجة الاكتشاف"))
+                .setMessage(tr("Tested: ","تم اختبار: ")+outcome.tested+tr("\nNew verified servers: ","\nسيرفرات جديدة مؤكدة: ")+outcome.added+tr("\nConnected: ","\nمتصل بـ: ")+(outcome.connected==null?tr("None — key or network may not support these servers","لا يوجد — قد لا يدعم المفتاح أو الشبكة هذه السيرفرات"):outcome.connected.profile.name+" · "+outcome.connected.ms+" ms")).setPositiveButton(android.R.string.ok,null).show();});
+        }catch(Exception|LinkageError e){app.error="Discovery failed";runOnUiThread(()->toast(tr("Discovery requires a valid Proton FREE profile and working network","الاكتشاف يتطلب ملف Proton مجاني صالح وشبكة تعمل")));}
+        finally{app.progress="";app.busy=false;runOnUiThread(()->{if(resumed)refresh();});}});
+    }
     private void startSmart(){
         if(app.busy||data==null||data.profiles.isEmpty()||!app.activeId.isEmpty())return;
         new AlertDialog.Builder(this).setTitle(tr("Smart Connect","اتصال ذكي"))
