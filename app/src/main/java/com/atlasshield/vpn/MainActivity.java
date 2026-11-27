@@ -21,7 +21,7 @@ public final class MainActivity extends Activity {
     private AtlasApp app;
     private ProfileStore.Data data;
     private TextView status, detail, traffic, profile, count;
-    private Button connect, choose, add, proton;
+    private Button connect, choose, add, proton, smart;
     private ProfileStore.Profile pending;
     private boolean resumed=false, refreshing=false, loading=true;
     private final Runnable tick=new Runnable(){ public void run(){ if(!resumed)return; refresh(); h.postDelayed(this,2000); }};
@@ -41,10 +41,11 @@ public final class MainActivity extends Activity {
         status=text(tr("Starting…","جارٍ التحضير…"),25,WHITE,true); status.setGravity(Gravity.CENTER); hero.addView(status);
         detail=text("",13,MUTED,false); detail.setGravity(Gravity.CENTER); hero.addView(detail); gap(hero,18);
         connect=button(tr("Connect","اتصال"),true); hero.addView(connect,new LinearLayout.LayoutParams(-1,dp(56))); connect.setEnabled(false); connect.setOnClickListener(v->toggle());
+        smart=button(tr("Smart Connect · test servers","اتصال ذكي · اختبار السيرفرات"),false);hero.addView(smart);smart.setEnabled(false);smart.setOnClickListener(v->startSmart());
         LinearLayout location=panel(root); location.addView(text(tr("YOUR LOCATION","موقع السيرفر"),11,MINT,true));
         profile=text(tr("No server imported","لا يوجد سيرفر مضاف"),20,WHITE,true); location.addView(profile); count=text("",13,MUTED,false); location.addView(count); gap(location,12);
         choose=button(tr("Select server","اختيار السيرفر"),false); location.addView(choose); choose.setOnClickListener(v->pick());
-        add=button(tr("Import WireGuard profile","استيراد ملف WireGuard"),false); location.addView(add); add.setOnClickListener(v->importFile());
+        add=button(tr("Import WireGuard profiles","استيراد ملفات WireGuard"),false); location.addView(add); add.setOnClickListener(v->importFile());
         proton=button(tr("Get servers from Proton","إضافة سيرفرات من Proton"),false); location.addView(proton); proton.setOnClickListener(v->openProton());
         LinearLayout metrics=panel(root); metrics.addView(text(tr("SESSION / LIVE TRAFFIC","الجلسة / استهلاك البيانات"),11,MINT,true));
         traffic=text("↓ 0 B     ↑ 0 B",22,WHITE,true); metrics.addView(traffic);
@@ -52,7 +53,7 @@ public final class MainActivity extends Activity {
         security.addView(text(tr("Encrypted local profile storage. No advertising SDK or analytics. For a kill switch, enable Android's Always-on VPN and Block connections without VPN.","حفظ ملفات الاتصال مشفرة محليًا، دون مكتبات إعلانات أو تحليلات. لتفعيل Kill Switch استخدم VPN دائم التشغيل وحظر الاتصال دون VPN من إعدادات أندرويد."),14,MUTED,false));
         Button settings=button(tr("Android VPN settings","إعدادات VPN في أندرويد"),false); security.addView(settings); settings.setOnClickListener(v->{try{startActivity(new Intent(Settings.ACTION_VPN_SETTINGS));}catch(Exception e){toast(tr("Open VPN settings manually","افتح إعدادات VPN يدويًا"));}});
         Button remove=button(tr("Remove selected profile","حذف السيرفر المحدد"),false); security.addView(remove); remove.setOnClickListener(v->remove());
-        gap(root,12); root.addView(text("ATLAS SHIELD  /  0.1.1  /  PUBLIC BETA",11,MUTED,true));
+        gap(root,12); root.addView(text("ATLAS SHIELD  /  1.0.0  /  SMART BETA",11,MUTED,true));
         app.worker.execute(()->{try{ProfileStore.Data d=app.store.load();runOnUiThread(()->{data=d;loading=false;updateProfile();});}catch(Exception e){runOnUiThread(()->{loading=false;toast(tr("Cannot read encrypted profiles","تعذر قراءة الملفات المشفرة"));});}});
     }
     @Override protected void onResume(){super.onResume();resumed=true;h.removeCallbacks(tick);h.post(tick);}
@@ -63,15 +64,15 @@ public final class MainActivity extends Activity {
     private Button button(String s,boolean primary){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setTextSize(15);b.setTextColor(primary?BG:WHITE);b.setBackgroundTintList(ColorStateList.valueOf(primary?MINT:0xff263d52));b.setMinHeight(dp(46));return b;}
     private void gap(LinearLayout l,int n){View v=new View(this);l.addView(v,new LinearLayout.LayoutParams(1,dp(n)));}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
-    private String country(String code){return new Locale("",code).getDisplayCountry(Locale.getDefault());}
+    private String country(String code){return code==null||code.isEmpty()?tr("Unknown country","دولة غير محددة"):new Locale("",code).getDisplayCountry(Locale.getDefault());}
     private void updateProfile(){if(data==null)return;ProfileStore.Profile p=data.selected();profile.setText(p==null?tr("No server imported","لا يوجد سيرفر مضاف"):country(p.country)+" / "+p.name);count.setText(data.profiles.size()+tr(" imported profiles · locations are user-labelled"," ملف اتصال مضاف · المواقع يحددها المستخدم"));}
-    private void refresh(){if(refreshing)return;if(app.busy){status.setText(tr("Working…","جارٍ التنفيذ…"));connect.setEnabled(false);choose.setEnabled(false);add.setEnabled(false);return;}refreshing=true;
+    private void refresh(){if(refreshing)return;if(app.busy){status.setText(tr("Working…","جارٍ التنفيذ…"));connect.setEnabled(false);choose.setEnabled(false);add.setEnabled(false);smart.setEnabled(false);if(!app.progress.isEmpty())detail.setText(app.progress);return;}refreshing=true;
         app.worker.execute(()->{AtlasApp.Snapshot s=null;try{s=app.stats();}catch(Exception|LinkageError e){app.error="Cannot read VPN state";}final AtlasApp.Snapshot x=s;runOnUiThread(()->{refreshing=false;if(isFinishing()||isDestroyed())return;
             boolean up=x!=null&&x.up, known=x!=null;long age=up&&x.handshake>0?System.currentTimeMillis()-x.handshake:Long.MAX_VALUE;boolean recent=age>=0&&age<180000;
             status.setText(!known?tr("State unknown","حالة غير معروفة"):up?(recent?tr("Handshake verified","تم التحقق من الاتصال"):tr("Tunnel active","النفق نشط")):tr("Disconnected","غير متصل")); status.setTextColor(up&&recent?MINT:WHITE);
             detail.setText(!app.error.isEmpty()?tr("VPN error. Check profile and network.","خطأ في VPN؛ تحقق من الملف والشبكة."):up?(recent?tr("Recent authenticated handshake · internet not tested","مصافحة مشفرة حديثة · لم يتم اختبار الإنترنت"):tr("Waiting for a recent server handshake","في انتظار مصافحة حديثة مع السيرفر")):tr("Import a trusted server to get started","أضف سيرفرًا موثوقًا للبدء"));
             traffic.setText(up?"↓ "+bytes(x.rx)+"     ↑ "+bytes(x.tx)+"\n"+duration(x.elapsed):"↓ 0 B     ↑ 0 B");
-            connect.setText(up?tr("Disconnect","قطع الاتصال"):tr("Connect","اتصال"));connect.setEnabled(!app.busy&&(up||!loading&&data!=null&&data.selected()!=null));choose.setEnabled(!loading&&!app.busy&&!up&&data!=null);add.setEnabled(!loading&&!app.busy&&!up&&data!=null);
+            connect.setText(up?tr("Disconnect","قطع الاتصال"):tr("Connect","اتصال"));connect.setEnabled(!app.busy&&(up||!loading&&data!=null&&data.selected()!=null));choose.setEnabled(!loading&&!app.busy&&!up&&data!=null);add.setEnabled(!loading&&!app.busy&&!up&&data!=null);smart.setEnabled(known&&!loading&&!app.busy&&!up&&data!=null&&!data.profiles.isEmpty());
         });});
     }
     private static String bytes(long n){if(n<1024)return n+" B";if(n<1048576)return String.format(Locale.US,"%.1f KB",n/1024.0);return String.format(Locale.US,"%.1f MB",n/1048576.0);}
@@ -82,8 +83,51 @@ public final class MainActivity extends Activity {
         try { startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://account.protonvpn.com/downloads"))); }
         catch(ActivityNotFoundException e){ toast(tr("Open account.protonvpn.com/downloads in your browser","افتح account.protonvpn.com/downloads في متصفحك")); }
     }
-    private void importFile(){if(app.busy||data==null||!app.activeId.isEmpty())return;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("*/*");i.addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(i,12);}
-    @Override protected void onActivityResult(int req,int result,Intent intent){super.onActivityResult(req,result,intent);if(req==11){ProfileStore.Profile p=pending!=null?pending:data==null?null:data.selected();pending=null;if(result==RESULT_OK&&p!=null)runVpn(p);return;}if(req==12&&result==RESULT_OK&&intent!=null&&intent.getData()!=null)readFile(intent.getData());}
+    private void importFile(){if(app.busy||data==null||!app.activeId.isEmpty())return;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("*/*");i.addCategory(Intent.CATEGORY_OPENABLE);i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,12);}
+    @Override protected void onActivityResult(int req,int result,Intent intent){super.onActivityResult(req,result,intent);if(req==11){ProfileStore.Profile p=pending!=null?pending:data==null?null:data.selected();pending=null;if(result==RESULT_OK&&p!=null)runVpn(p);return;}if(req==13&&result==RESULT_OK){runSmart();return;}if(req==12&&result==RESULT_OK&&intent!=null){ArrayList<Uri> uris=new ArrayList<>();ClipData clips=intent.getClipData();if(clips!=null){for(int j=0;j<clips.getItemCount()&&j<50;j++){Uri u=clips.getItemAt(j).getUri();if(u!=null&&!uris.contains(u))uris.add(u);}}else if(intent.getData()!=null)uris.add(intent.getData());if(uris.size()==1)readFile(uris.get(0));else if(!uris.isEmpty())confirmBulk(uris);}}
+    private void startSmart(){
+        if(app.busy||data==null||data.profiles.isEmpty()||!app.activeId.isEmpty())return;
+        new AlertDialog.Builder(this).setTitle(tr("Smart Connect","اتصال ذكي"))
+            .setMessage(tr("Tests up to 4 imported servers using an HTTPS connectivity check through the VPN. Enable Android's block-connections-without-VPN setting for protection while switching. This measures response time, not download speed.","يختبر حتى ٤ سيرفرات مستوردة عبر طلب HTTPS داخل النفق. فعّل حظر الاتصال بدون VPN من إعدادات أندرويد للحماية أثناء التبديل. الاختبار يقيس زمن الاستجابة وليس سرعة التنزيل."))
+            .setNegativeButton(android.R.string.cancel,null).setPositiveButton(tr("Test and connect","اختبار واتصال"),(d,w)->{Intent i=VpnService.prepare(this);if(i!=null)startActivityForResult(i,13);else runSmart();}).show();
+    }
+    private void runSmart(){
+        if(app.busy||!app.activeId.isEmpty())return;app.busy=true;smart.setEnabled(false);
+        app.worker.execute(()->{try{
+            ProfileStore.Data latest=app.store.load();
+            SmartEngine.Result result=new SmartEngine(app).select(latest);
+            if(result!=null){latest.selected=result.profile.id;app.store.save(latest);runOnUiThread(()->{data=latest;updateProfile();toast(tr("Selected tested server: ","تم اختيار سيرفر مختبر: ")+result.profile.name+" · "+result.ms+" ms");});}
+            else runOnUiThread(()->toast(tr("No imported server passed the connection test","لم ينجح أي سيرفر مستورد في اختبار الاتصال")));
+        }catch(Exception|LinkageError e){app.error="Smart connection failed";runOnUiThread(()->toast(tr("Smart connection failed","تعذر الاتصال الذكي")));}
+        finally{app.progress="";app.busy=false;runOnUiThread(()->{if(resumed)refresh();});}});
+    }
+    private void confirmBulk(ArrayList<Uri> uris){
+        if(app.busy||data==null||!app.activeId.isEmpty())return;
+        new AlertDialog.Builder(this).setTitle(tr("Import trusted profiles?","استيراد ملفات موثوقة؟"))
+            .setMessage(tr("Only import configurations from your own account or a trusted administrator. Unrecognized locations are marked unknown.","استورد فقط إعدادات حسابك أو جهة موثوقة. المواقع غير المعروفة ستظهر بدون دولة محددة."))
+            .setNegativeButton(android.R.string.cancel,null).setPositiveButton(tr("Import","استيراد"),(d,w)->bulk(uris)).show();
+    }
+    private String readConfig(Uri uri) throws Exception {
+        try(InputStream in=getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){
+            if(in==null)throw new IOException();byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1){if(out.size()+n>65536)throw new IOException();out.write(b,0,n);}
+            String raw=new String(out.toByteArray(),StandardCharsets.UTF_8);if(raw.startsWith("\uFEFF"))raw=raw.substring(1);AtlasApp.validate(raw);return raw;
+        }
+    }
+    private void bulk(ArrayList<Uri> uris){
+        if(app.busy||!app.activeId.isEmpty())return;app.busy=true;
+        app.worker.execute(()->{try{
+            ProfileStore.Data latest=app.store.load();int added=0, skipped=0;
+            for(Uri uri:uris){
+                try{String raw=readConfig(uri);boolean duplicate=false;for(ProfileStore.Profile old:latest.profiles){if(old.config.equals(raw)){duplicate=true;break;}}
+                    if(duplicate||latest.profiles.size()>=200){skipped++;continue;}
+                    ServerHint hint=ServerHint.from(raw,displayName(uri));String name=hint.name.isEmpty()?"WireGuard "+(latest.profiles.size()+1):hint.name;
+                    ProfileStore.Profile p=new ProfileStore.Profile(UUID.randomUUID().toString(),name,hint.country,raw);latest.profiles.add(p);if(latest.selected.isEmpty())latest.selected=p.id;added++;
+                }catch(Exception|LinkageError e){skipped++;}
+            }
+            app.store.save(latest);final int a=added,s=skipped;runOnUiThread(()->{data=latest;updateProfile();toast(tr("Imported: ","تم استيراد: ")+a+tr(" · skipped: "," · تم تخطي: ")+s);});
+        }catch(Exception e){runOnUiThread(()->toast(tr("Import failed","تعذر الاستيراد")));}
+        finally{app.busy=false;runOnUiThread(()->{if(resumed)refresh();});}});
+    }
     private void readFile(Uri uri){app.busy=true;app.worker.execute(()->{try(InputStream in=getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){if(in==null)throw new IOException();byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1){if(out.size()+n>65536)throw new IOException();out.write(b,0,n);}String raw=new String(out.toByteArray(),StandardCharsets.UTF_8);if(raw.startsWith("\uFEFF"))raw=raw.substring(1);AtlasApp.validate(raw);final String config=raw;final String fileName=displayName(uri);runOnUiThread(()->{if(!isFinishing()&&!isDestroyed())label(config,fileName);});}catch(Exception|LinkageError e){runOnUiThread(()->toast(tr("Invalid profile. Requires one peer, DNS, and full IPv4/IPv6 routes without app exclusions.","ملف غير مقبول: مطلوب DNS وسيرفر واحد ومسارات IPv4 وIPv6 كاملة دون استثناء تطبيقات.")));}finally{app.busy=false;}});}
     private String displayName(Uri uri){try(android.database.Cursor c=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)){if(c!=null&&c.moveToFirst())return c.getString(0);}catch(Exception ignored){}return "";}
     private void label(String raw,String fileName){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(20),dp(12),dp(20),0);EditText name=new EditText(this);name.setSingleLine(true);name.setHint(tr("Server name","اسم السيرفر"));ServerHint hint=ServerHint.from(raw,fileName);name.setText(hint.name);box.addView(name);

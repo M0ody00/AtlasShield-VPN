@@ -15,7 +15,7 @@ public final class AtlasApp extends Application {
     final ExecutorService worker=Executors.newSingleThreadExecutor();
     ProfileStore store;
     private GoBackend backend;
-    volatile String activeId="", error="";
+    volatile String activeId="", error="", progress="";
     volatile boolean busy=false;
     volatile long started=0;
     private final Tunnel tunnel=new Tunnel() {
